@@ -57,6 +57,29 @@ uv run uvicorn seller.app:app --port 8402
 uv run pytest
 ```
 
+## Verifying the double charge on-chain
+
+The point of the demo is that a seller's HTTP response cannot be trusted about
+money. `scripts/verify_double_charge.py` ignores the seller entirely and reads
+Base Sepolia directly: it counts the USDC transfers that actually moved from the
+buyer wallet to the seller's `payTo` in a block window.
+
+```bash
+uv run python scripts/verify_double_charge.py \
+    --buyer  0xYOURBUYER \
+    --pay-to 0xSELLERPAYTO \
+    --from-block <block before the test>
+```
+
+- **0 or 1 transfer** -> no double charge in that window.
+- **2+ transfers** for one logical purchase -> double charge proven from the
+  chain, no matter what the seller's responses said.
+
+This is the same on-chain settlement check BillGuard performs instead of
+believing a 402 "payment failed" response. Why the gap exists: x402 settles the
+payment before it finishes the HTTP response, so the on-chain fact and the HTTP
+status are independent. A "failed" status is not proof the money stayed put.
+
 ## What's implemented vs not
 
 The payment wiring, ledger, published contact, scripts, tests, and the
