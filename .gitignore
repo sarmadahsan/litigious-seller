@@ -6,3 +6,4 @@ __pycache__/
 *.sqlite
 .pytest_cache/
 dist/
+buyer_address.txt

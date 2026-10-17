@@ -21,6 +21,7 @@ to exhibit and how BillGuard is expected to catch it.
 from __future__ import annotations
 
 import logging
+import uuid
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
@@ -186,21 +187,83 @@ async def ledger_json() -> JSONResponse:
 
 
 # ============================================================================
-# Paid routes -- YOU IMPLEMENT THESE
+# Paid routes
 # ============================================================================
-# The middleware above already requires payment for GET /intel/* and
-# GET /dossier/*. Add the handlers below. Use ledger.record(payer=..., route=...,
-# tx_hash=..., amount=..., delivered=..., note=...) to write to the books.
+# The middleware already requires payment for GET /intel/* and GET /dossier/*,
+# so these handlers run ONLY after a payment has verified and settled.
 #
-#   @app.get("/intel/{ticker}")
-#   async def intel(ticker: str, request: Request): ...
+# Payment context (set by the middleware once payment verifies):
+#   payer  = request.state.payment_payload.payload["authorization"]["from"]
+#   amount = request.state.payment_requirements.amount   # atomic USDC (6 dp)
 #
-#   @app.get("/dossier/{ticker}")
-#   async def dossier(ticker: str, request: Request): ...
+# ledger.record(payer=..., route=..., amount=..., delivered=..., note=...) writes
+# a row shown on /ledger. The after-settle hook already records settled payments
+# to Stripe when configured.
 #
-#   @app.get("/dossier/status/{order_id}")
-#   async def dossier_status(order_id: str): ...
-#
-# request.state.payment_payload and request.state.payment_requirements are set
-# by the middleware once payment verifies, so the payer address is available to
-# your handler. See docs/billguard-detection-and-dispute.md.
+# Below is the CORRECT (honest) behavior: each route takes payment and delivers.
+# The adversarial variants this demo is about are marked TODO(you). What each
+# variant should do, and how BillGuard is meant to catch it, is described in
+# docs/billguard-detection-and-dispute.md. Leave the honest behavior in place
+# unless you are intentionally building the adversarial version.
+
+
+def _payer(request: Request) -> str:
+    return request.state.payment_payload.payload["authorization"]["from"]
+
+
+def _amount(request: Request) -> str | None:
+    return getattr(request.state.payment_requirements, "amount", None)
+
+
+@app.get("/intel/{ticker}")
+async def intel(ticker: str, request: Request):
+    """Honest: payment has settled, so return the report and record delivery."""
+    payer = _payer(request)
+    amount = _amount(request)
+
+    # TODO(you): adversarial variant for the double-charge scenario goes here.
+    # See docs/billguard-detection-and-dispute.md (scenario A). Leave as-is for
+    # the honest, delivering behavior.
+
+    report = {
+        "ticker": ticker.upper(),
+        "summary": f"Equity intel for {ticker.upper()}.",
+        "rating": "hold",
+        "as_of": "2026-10-17",
+    }
+    ledger.record(payer=payer, route=f"GET /intel/{ticker}", amount=amount,
+                  delivered=True, note="delivered")
+    return report
+
+
+# In-memory dossier orders. Fine for a demo; resets on restart.
+_dossiers: dict[str, dict] = {}
+
+
+@app.get("/dossier/{ticker}")
+async def dossier(ticker: str, request: Request):
+    """Honest: payment has settled, so create the order and make it ready."""
+    payer = _payer(request)
+    amount = _amount(request)
+    order_id = uuid.uuid4().hex[:12]
+
+    # TODO(you): adversarial variant for the charge-without-delivery scenario
+    # goes here. See docs/billguard-detection-and-dispute.md (scenario B). Leave
+    # as-is for the honest, delivering behavior.
+
+    _dossiers[order_id] = {"ticker": ticker.upper(), "ready": True}
+    ledger.record(payer=payer, route=f"GET /dossier/{ticker}", amount=amount,
+                  delivered=True, note=f"order {order_id}")
+    return {"order_id": order_id, "status": "processing",
+            "status_url": f"/order/{order_id}"}
+
+
+# Free status route. It lives at /order/* (NOT /dossier/*) on purpose, so the
+# GET /dossier/* payment gate does not also charge for status checks.
+@app.get("/order/{order_id}")
+async def order_status(order_id: str):
+    order = _dossiers.get(order_id)
+    if order and order.get("ready"):
+        return {"status": "complete",
+                "dossier": {"ticker": order["ticker"], "pages": 12}}
+    return {"status": "processing"}
