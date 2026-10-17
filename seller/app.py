@@ -21,6 +21,7 @@ to exhibit and how BillGuard is expected to catch it.
 from __future__ import annotations
 
 import logging
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse
@@ -72,11 +73,24 @@ ROUTES = {
     },
 }
 
-app = FastAPI(title=CONFIG.seller_name)
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    # Prime the server's capabilities from the facilitator before serving paid
+    # routes. Needs network to CONFIG.facilitator_url (default x402.org). Import
+    # and the unit tests stay offline because this only runs on server startup.
+    import asyncio
+
+    result = server.initialize()
+    if asyncio.iscoroutine(result):
+        await result
+    log.info("facilitator capabilities loaded: %s", bool(server._supported_responses))
+    yield
+
+
+app = FastAPI(title=CONFIG.seller_name, lifespan=lifespan)
 
 # Build the payment middleware once. sync_facilitator_on_start=False avoids a
-# network call to the facilitator at construction (keeps import/tests offline);
-# verification and settlement still use the facilitator at request time.
+# second network call at construction; the lifespan above does the priming.
 _payment_mw = payment_middleware(ROUTES, server, sync_facilitator_on_start=False)
 
 
