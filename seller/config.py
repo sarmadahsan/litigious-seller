@@ -24,10 +24,17 @@ class Config:
     support_email: str
     support_phone: str
     port: int
+    stripe_secret_key: str
+    stripe_api_version: str
+    stripe_pi_network: str
 
     @property
     def seller_name(self) -> str:
         return "Meridian Intel"
+
+    @property
+    def stripe_enabled(self) -> bool:
+        return bool(self.stripe_secret_key)
 
 
 def load_config() -> Config:
@@ -46,4 +53,7 @@ def load_config() -> Config:
         ).strip(),
         support_phone=os.environ.get("SUPPORT_PHONE", "+15555550100").strip(),
         port=int(os.environ.get("PORT", "8402")),
+        stripe_secret_key=os.environ.get("STRIPE_SECRET_KEY", "").strip(),
+        stripe_api_version=os.environ.get("STRIPE_API_VERSION", "2026-07-29.preview").strip(),
+        stripe_pi_network=os.environ.get("STRIPE_PI_NETWORK", "base").strip(),
     )

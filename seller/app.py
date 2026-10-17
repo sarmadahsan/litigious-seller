@@ -31,6 +31,7 @@ from x402.http import FacilitatorConfig, HTTPFacilitatorClient
 from x402.http.middleware.fastapi import payment_middleware
 from x402.mechanisms.evm.exact import ExactEvmServerScheme
 
+from . import stripe_recorder
 from .config import NETWORK, load_config
 from .ledger import ledger
 
@@ -43,6 +44,25 @@ CONFIG = load_config()
 _facilitator = HTTPFacilitatorClient(FacilitatorConfig(url=CONFIG.facilitator_url))
 server = x402ResourceServer(_facilitator)
 server.register(NETWORK, ExactEvmServerScheme())
+
+
+# Honest bookkeeping bridge: record every settled payment to Stripe (no-op unless
+# STRIPE_SECRET_KEY is set). Registered here, before any route-level hooks, so it
+# records even if a later after-settle hook raises. It never raises itself.
+async def _record_to_stripe(ctx) -> None:
+    result = ctx.result
+    amount = getattr(result, "amount", None) or getattr(ctx.requirements, "amount", None)
+    stripe_recorder.record_payment(
+        getattr(result, "transaction", None),
+        amount,
+        success=getattr(result, "success", False),
+    )
+
+
+if CONFIG.stripe_enabled:
+    server.on_after_settle(_record_to_stripe)
+    log.info("stripe recording enabled (api %s, network %s)",
+             CONFIG.stripe_api_version, CONFIG.stripe_pi_network)
 
 # Payment-gated routes. Price/payTo/network are honest config; the middleware
 # enforces payment before the handler runs. Handler *behavior* is yours.

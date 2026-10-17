@@ -57,6 +57,31 @@ uv run uvicorn seller.app:app --port 8402
 uv run pytest
 ```
 
+## Optional: record payments to Stripe
+
+The seller can mirror every settled payment into Stripe as a PaymentIntent, so
+the Stripe Dashboard becomes a second, independent view of what was charged (a
+double charge shows up as two PaymentIntents). This uses Stripe's x402 machine
+payments, which is the same protocol/network/currency this seller already uses,
+so it is an add-on, not a rail change. See
+https://docs.stripe.com/payments/machine/x402
+
+It is **off unless `STRIPE_SECRET_KEY` is set**, and the recording never affects
+the payment flow (it runs in an after-settle hook that never raises). Use a
+Stripe **sandbox** key for the demo: no real money, and no crypto payment-method
+approval (that and the US-only limit apply to live mode only).
+
+```bash
+# 1. Mint a Base deposit address in your Stripe sandbox
+STRIPE_SECRET_KEY=sk_test_... uv run python scripts/create_deposit_address.py
+# 2. Put the printed address in SELLER_PAY_TO, and set STRIPE_SECRET_KEY in .env
+# 3. Run the server as usual; settled payments now appear in the Stripe Dashboard
+```
+
+Pieces: `seller/stripe_recorder.py` (PaymentIntent recording, direct REST, fully
+unit-tested), `scripts/create_deposit_address.py` (one-time deposit address), and
+an after-settle hook in `seller/app.py` registered only when a key is present.
+
 ## Verifying the double charge on-chain
 
 The point of the demo is that a seller's HTTP response cannot be trusted about
