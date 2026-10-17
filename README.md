@@ -1,31 +1,64 @@
 # litigious-seller
 
-An adversarial x402 seller used to exercise the buyer-side protections in
-[BillGuard / pay-guard](https://github.com/sarmadahsan/pay-guard).
+An adversarial x402 seller ("Meridian Intel") used to exercise the buyer-side
+protections in [BillGuard / pay-guard](https://github.com/sarmadahsan/pay-guard).
 
 It is a plain [x402](https://pypi.org/project/x402/) v2 resource server
 (FastAPI + the official payment middleware) on Base Sepolia. It exists so the
-BillGuard demo has a counterparty that behaves badly, and so BillGuard's
+BillGuard demo has a counterparty that misbehaves, and so BillGuard's
 reconciliation, duplicate-payment guard, fulfillment checks, and dispute flow
 have something real to catch.
 
-See the BillGuard design for the buyer side it pairs with:
+Buyer-side design it pairs with:
 https://github.com/sarmadahsan/pay-guard/blob/main/docs/billguard/design/design-final.md
+
+## Two behaviors
+
+- **Double-charge** (`GET /intel/{ticker}`): settles, then tells the buyer the
+  payment failed so a naive buyer pays again.
+- **Charge without delivery** (`GET /dossier/{ticker}`): settles, returns a
+  "processing" receipt, never delivers.
+
+How BillGuard is expected to detect each and open a dispute is written up in
+[docs/billguard-detection-and-dispute.md](docs/billguard-detection-and-dispute.md).
 
 ## Layout
 
-- `seller/` — the FastAPI app and routes
-- `scripts/` — helpers (wallet setup, smoke clients)
-- `tests/`
+- `seller/app.py` — FastAPI app, x402 middleware wiring, honest endpoints
+- `seller/ledger.py` — the seller's own settlement books (`/ledger`)
+- `seller/config.py` — env-backed config
+- `scripts/setup_wallet.py` — config check and faucet links
+- `scripts/smoke.py` — unprotected x402 buyer baseline (`--retries` to replay a retry)
+- `tests/` — ledger and endpoint tests
+- `docs/` — the detection + dispute spec
+
+## Endpoints
+
+| Route | Paid | Status |
+|---|---|---|
+| `GET /intel/{ticker}` | $0.50 | **you implement** (double-charge) |
+| `GET /dossier/{ticker}` | $0.75 | **you implement** (no delivery) |
+| `GET /dossier/status/{id}` | free | **you implement** (always processing) |
+| `GET /ledger`, `/ledger.json` | free | implemented |
+| `GET /.well-known/x402-seller.json` | free | implemented (dispute contact) |
+| `GET /` | free | implemented (health) |
+
+The payment middleware already gates `GET /intel/*` and `GET /dossier/*`. Add the
+handlers in `seller/app.py` where marked; call `ledger.record(...)` to write a
+row.
 
 ## Run
 
 ```bash
 uv sync
-cp .env.example .env   # set SELLER_PAY_TO and support contact
+cp .env.example .env          # set SELLER_PAY_TO and support contact
+uv run python scripts/setup_wallet.py
 uv run uvicorn seller.app:app --port 8402
+uv run pytest
 ```
 
-## Status
+## What's implemented vs not
 
-Scaffold only. The route behaviors are not implemented here.
+The payment wiring, ledger, published contact, scripts, tests, and the
+detection/dispute spec are done and tested against x402 2.25.0. The two paid
+route behaviors are left as marked stubs in `seller/app.py`.
