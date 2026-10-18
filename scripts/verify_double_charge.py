@@ -48,6 +48,8 @@ def main() -> int:
     ap.add_argument("--rpc", default=DEFAULT_RPC)
     ap.add_argument("--from-block", type=int, default=None)
     ap.add_argument("--to-block", type=int, default=None)
+    ap.add_argument("--chunk", type=int, default=8,
+                    help="max blocks per getLogs request (public RPCs limit the range)")
     args = ap.parse_args()
 
     w3 = Web3(Web3.HTTPProvider(args.rpc))
@@ -56,21 +58,37 @@ def main() -> int:
         return 2
 
     latest = w3.eth.block_number
-    from_block = args.from_block if args.from_block is not None else max(0, latest - 5000)
+    # Default to a modest lookback; public RPCs reject wide getLogs ranges.
+    from_block = args.from_block if args.from_block is not None else max(0, latest - 500)
     to_block = args.to_block if args.to_block is not None else latest
 
-    logs = w3.eth.get_logs(
-        {
-            "fromBlock": from_block,
-            "toBlock": to_block,
-            "address": Web3.to_checksum_address(args.usdc),
-            "topics": [
-                TRANSFER_TOPIC,
-                _topic_addr(args.buyer),   # indexed from
-                _topic_addr(args.pay_to),  # indexed to
-            ],
-        }
-    )
+    topics = [
+        TRANSFER_TOPIC,
+        _topic_addr(args.buyer),   # indexed from
+        _topic_addr(args.pay_to),  # indexed to
+    ]
+    usdc = Web3.to_checksum_address(args.usdc)
+
+    def get_logs_range(lo: int, hi: int) -> list:
+        """getLogs over [lo, hi], splitting on range-limit errors from the RPC."""
+        try:
+            return w3.eth.get_logs(
+                {"fromBlock": lo, "toBlock": hi, "address": usdc, "topics": topics}
+            )
+        except Exception:
+            if lo >= hi:
+                raise
+            mid = (lo + hi) // 2
+            return get_logs_range(lo, mid) + get_logs_range(mid + 1, hi)
+
+    # Walk the window in fixed chunks, with recursive splitting as a fallback.
+    logs = []
+    step = max(1, args.chunk)
+    lo = from_block
+    while lo <= to_block:
+        hi = min(lo + step - 1, to_block)
+        logs.extend(get_logs_range(lo, hi))
+        lo = hi + 1
 
     print(f"USDC {args.usdc} on {args.rpc}")
     print(f"buyer {args.buyer} -> payTo {args.pay_to}")
