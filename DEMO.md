@@ -65,11 +65,15 @@ curl -s http://localhost:8402/.well-known/x402-seller.json
 curl -s -o /dev/null -w "%{http_code}\n" http://localhost:8402/intel/AAPL   # expect 402
 ```
 
-Expose it publicly so Claude Desktop can reach it. In terminal 2:
-```bash
-cloudflared tunnel --url http://localhost:8402
-```
-Copy the printed `https://…trycloudflare.com` URL. (`ngrok http 8402` works too.)
+That's it for the local demo. Because the buyer (the command-line client and
+the Claude Desktop MCP server) runs on this same machine, it reaches the seller
+directly at `http://localhost:8402` — no tunnel needed.
+
+> Optional, only if something off this machine must call the seller (a hosted
+> agent, the claude.ai web app, a teammate): expose it with
+> `cloudflared tunnel --url http://localhost:8402` and use the printed
+> `https://…trycloudflare.com` URL as `SELLER_URL`. The quick-tunnel URL changes
+> each restart. Not needed for the local demo below.
 
 ---
 
@@ -89,7 +93,7 @@ Let Claude be the agent, paying through the buyer MCP server.
 
 1. Open Claude Desktop → Settings → Developer → Edit Config.
 2. Merge in `buyer/claude_desktop_config.example.json`. Set:
-   - `SELLER_URL` → your tunnel URL from step 2
+   - `SELLER_URL` → `http://localhost:8402` (same machine; no tunnel needed)
    - `BUYER_KEY_SEPOLIA` → the funded key (keep it only here; never commit it)
 3. Restart Claude Desktop. The `naive-x402-buyer` server and its tools
    (`fetch_intel`, `fetch_dossier`, `check_order`) appear.
