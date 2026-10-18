@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "naive-x402-buyer": {
+      "command": "uv",
+      "args": [
+        "--directory", "/Users/sarmad/litigious-seller",
+        "run", "python", "-m", "buyer.server"
+      ],
+      "env": {
+        "SELLER_URL": "https://REPLACE-with-your-tunnel.trycloudflare.com",
+        "BUYER_KEY_SEPOLIA": "0xREPLACE-with-your-funded-sepolia-key"
+      }
+    }
+  }
+}

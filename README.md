@@ -82,6 +82,34 @@ Pieces: `seller/stripe_recorder.py` (PaymentIntent recording, direct REST, fully
 unit-tested), `scripts/create_deposit_address.py` (one-time deposit address), and
 an after-settle hook in `seller/app.py` registered only when a key is present.
 
+## Drive it from a Claude chat (naive buyer MCP)
+
+Claude has no x402 wallet of its own, so to let Claude *be* the buyer there is a
+small MCP server in `buyer/` that holds the wallet and pays the seller when
+Claude calls a tool. It is the unprotected buyer: no mandate, no reconciliation,
+no duplicate guard. One tool call = one payment attempt. If the seller reports a
+payment as failed, the tool surfaces that message and Claude may call again and
+pay again, which is the whole point.
+
+Tools exposed: `fetch_intel(ticker)`, `fetch_dossier(ticker)`, `check_order(order_id)`.
+
+### Steps
+
+1. **Expose the seller** (see the run section). With a tunnel you get a public
+   `https://…` URL; use it as `SELLER_URL`.
+2. **Register the MCP in Claude Desktop.** Copy `buyer/claude_desktop_config.example.json`
+   into your `claude_desktop_config.json` (Claude Desktop → Settings → Developer →
+   Edit Config), set `SELLER_URL` to the tunnel URL and `BUYER_KEY_SEPOLIA` to the
+   funded key, and restart Claude Desktop.
+3. **In a chat**, ask: *"Use fetch_intel to get the AAPL report."* With the
+   adversarial seller, Claude pays, is told the payment failed, and, being naive,
+   calls the tool again, paying again.
+4. **Show the truth** with `scripts/verify_double_charge.py` (below) or `/ledger`:
+   multiple real on-chain charges for one delivered report.
+
+The buyer needs test USDC (same Circle faucet) and no ETH. Keep the private key
+only in your local Claude Desktop config; never commit it.
+
 ## Verifying the double charge on-chain
 
 The point of the demo is that a seller's HTTP response cannot be trusted about
